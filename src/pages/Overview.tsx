@@ -199,7 +199,7 @@ export function Overview() {
           </a>
           <a href="/map" className={styles.actionCard}>
             <span className={styles.actionIcon}>🗺️</span>
-            <span className={styles.actionTitle}>Map</span>
+            <span className={styles.actionTitle}>Memory</span>
             <span className={styles.actionDesc}>Visualize knowledge</span>
           </a>
           <a href="/playground" className={styles.actionCard}>
