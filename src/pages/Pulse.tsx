@@ -62,8 +62,13 @@ function shortenMsg(msg: string): string {
   }).replace(/cd\s+~\/Code\/github\.com\/[\w-]+\/[\w-]+\s*&&\s*/g, '');
 }
 
+interface CollapsedGroup {
+  placeholder: FeedEvent;
+  hidden: FeedEvent[];
+}
+
 /** Merge PostToolUse into PreToolUse as duration, drop noise, collapse repeats */
-function pairEvents(events: FeedEvent[]): FeedEvent[] {
+function pairEvents(events: FeedEvent[]): { events: FeedEvent[]; collapsedGroups: Map<number, CollapsedGroup> } {
   const result: FeedEvent[] = [];
   const pendingPre = new Map<string, number>();
 
@@ -119,12 +124,15 @@ function pairEvents(events: FeedEvent[]): FeedEvent[] {
       collapsed.push(ev);
       const last = result[i + count - 1];
       if (count > 2) {
-        collapsed.push({
+        const hidden = result.slice(i + 1, i + count - 1).map(e => ({ ...e, message: shortenMsg(e.message) }));
+        const placeholder = {
           ...ev,
           event: 'Collapsed',
           message: `... ${count - 2} more ${tool} calls`,
           session_id: ev.session_id,
-        });
+          _hidden: hidden,
+        } as FeedEvent & { _hidden: FeedEvent[] };
+        collapsed.push(placeholder);
       }
       if (count > 1) collapsed.push(last);
       i += count - 1;
@@ -133,7 +141,18 @@ function pairEvents(events: FeedEvent[]): FeedEvent[] {
     }
   }
 
-  return collapsed;
+  // Build a map of collapsed placeholder index → hidden events
+  const collapsedGroups = new Map<number, CollapsedGroup>();
+  for (let i = 0; i < collapsed.length; i++) {
+    if (collapsed[i].event === 'Collapsed' && (collapsed[i] as any)._hidden) {
+      collapsedGroups.set(i, {
+        placeholder: collapsed[i],
+        hidden: (collapsed[i] as any)._hidden,
+      });
+    }
+  }
+
+  return { events: collapsed, collapsedGroups };
 }
 
 const MSG_TRUNCATE = 120;
@@ -162,13 +181,15 @@ interface TmuxWindow {
   target: string; // "session:window"
 }
 
-/** Hover popup — appears near mouse cursor */
-function HoverPreview({ oracle, target, x, y, onPin }: {
+/** Hover popup — appears near mouse cursor with invisible bridge padding */
+function HoverPreview({ oracle, target, x, y, onPin, onMouseEnter, onMouseLeave }: {
   oracle: string; target: string; x: number; y: number; onPin: () => void;
+  onMouseEnter: () => void; onMouseLeave: () => void;
 }) {
   const [content, setContent] = useState('');
   const color = getOracleColor(oracle);
   const W = 440, H = 400;
+  const PAD = 24; // invisible bridge zone around popup
 
   useEffect(() => {
     const load = () => fetch(`${MAW_BASE}/api/capture?target=${encodeURIComponent(target)}`)
@@ -184,23 +205,33 @@ function HoverPreview({ oracle, target, x, y, onPin }: {
   const spaceBelow = window.innerHeight - y;
   const top = spaceBelow > H + 20 ? y - 40 : y - H + 40;
 
+  const finalLeft = Math.max(8, left);
+  const finalTop = Math.max(8, top);
+
   return (
     <div
-      className="fixed z-50 rounded-xl border overflow-hidden flex flex-col shadow-2xl"
-      style={{ left: Math.max(8, left), top: Math.max(8, top), width: W, height: H, borderColor: color + '50', background: '#0c0c14' }}
-      onClick={(e) => { e.stopPropagation(); onPin(); }}
+      className="fixed z-50"
+      style={{ left: finalLeft - PAD, top: finalTop - PAD, width: W + PAD * 2, height: H + PAD * 2 }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.08]">
-        <span className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ background: color }} />
-        <span className="text-sm font-mono font-bold" style={{ color }}>{oracle}</span>
-        <span className="text-[10px] font-mono text-white/25 ml-auto">click to expand</span>
-      </div>
-      <div className="flex-1 overflow-auto p-3 font-mono text-[12px] leading-[1.4] text-white/80 whitespace-pre-wrap">
-        {content ? (
-          <div dangerouslySetInnerHTML={{ __html: ansiToHtml(content) }} />
-        ) : (
-          <span className="text-white/30">...</span>
-        )}
+      <div
+        className="absolute rounded-xl border overflow-hidden flex flex-col shadow-2xl"
+        style={{ left: PAD, top: PAD, width: W, height: H, borderColor: color + '50', background: '#0c0c14' }}
+        onClick={(e) => { e.stopPropagation(); onPin(); }}
+      >
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.08]">
+          <span className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ background: color }} />
+          <span className="text-sm font-mono font-bold" style={{ color }}>{oracle}</span>
+          <span className="text-[10px] font-mono text-white/25 ml-auto">click to expand</span>
+        </div>
+        <div className="flex-1 overflow-auto p-3 font-mono text-[12px] leading-[1.4] text-white/80 whitespace-pre-wrap">
+          {content ? (
+            <div dangerouslySetInnerHTML={{ __html: ansiToHtml(content) }} />
+          ) : (
+            <span className="text-white/30">...</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -354,6 +385,8 @@ export function Pulse() {
   const [tmuxWindows, setTmuxWindows] = useState<TmuxWindow[]>([]);
   const [terminalTarget, setTerminalTarget] = useState<{ oracle: string; target: string } | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ oracle: string; target: string; x: number; y: number } | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Map<number, CollapsedGroup>>(new Map());
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
@@ -365,7 +398,8 @@ export function Pulse() {
       });
       // Pair PreToolUse with PostToolUse to calculate duration, filter noise
       const paired = pairEvents(data.events);
-      setEvents(paired);
+      setEvents(paired.events);
+      setCollapsedGroups(paired.collapsedGroups);
       setActiveOracles(data.active_oracles);
       setTotal(data.total);
       setLoading(false);
@@ -486,9 +520,9 @@ export function Pulse() {
         )}
 
         <div className="flex flex-col">
-          {events.map((ev, i) => {
+          {events.flatMap((ev, i) => {
+            const rows: React.ReactNode[] = [];
             const color = getOracleColor(ev.oracle);
-            // Extract duration if paired
             const hasDuration = ev.session_id.includes('|');
             const duration = hasDuration ? ev.session_id.split('|')[1] : null;
 
@@ -500,13 +534,22 @@ export function Pulse() {
             const isStop = ev.event === 'Stop';
             const isError = isToolFailed || ev.event === 'PostToolUseFailure';
             const isSession = ev.event === 'SessionStart' || ev.event === 'SessionEnd';
+            const isExpanded = isCollapsed && expandedGroups.has(i);
+            const group = isCollapsed ? collapsedGroups.get(i) : undefined;
 
-            return (
+            rows.push(
               <div
                 key={`${ev.timestamp}-${i}`}
                 className={`flex items-start gap-3 py-2.5 px-4 rounded-lg transition-colors ${
                   isHumanMsg ? 'bg-blue-500/[0.06]' : 'hover:bg-white/[0.03]'
-                } ${isSession ? 'border-l-2 border-emerald-500/30' : ''}`}
+                } ${isSession ? 'border-l-2 border-emerald-500/30' : ''} ${isCollapsed ? 'cursor-pointer' : ''}`}
+                onClick={isCollapsed && group ? () => {
+                  setExpandedGroups(prev => {
+                    const next = new Set(prev);
+                    if (next.has(i)) next.delete(i); else next.add(i);
+                    return next;
+                  });
+                } : undefined}
               >
                 {/* Time */}
                 <span className="text-xs font-mono text-white/35 w-[36px] shrink-0 pt-0.5 text-right tabular-nums">
@@ -516,19 +559,19 @@ export function Pulse() {
                 {/* Oracle dot + name (hover=preview, click=full terminal) */}
                 <div
                   className="flex items-center gap-2 w-[90px] shrink-0 cursor-pointer hover:opacity-80"
-                  onClick={() => { setHoverPreview(null); openTerminal(ev.oracle); }}
-                  onMouseEnter={(e) => {
+                  onClick={(e) => { if (!isCollapsed) { e.stopPropagation(); setHoverPreview(null); openTerminal(ev.oracle); } }}
+                  onMouseEnter={!isCollapsed ? (e) => {
                     const win = tmuxWindows.find(w => w.oracle === ev.oracle);
                     if (!win) return;
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
                     hoverTimeout.current = setTimeout(() => {
                       setHoverPreview({ oracle: ev.oracle, target: win.target, x: e.clientX, y: e.clientY });
                     }, 300);
-                  }}
-                  onMouseLeave={() => {
+                  } : undefined}
+                  onMouseLeave={!isCollapsed ? () => {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
                     hoverTimeout.current = setTimeout(() => setHoverPreview(null), 200);
-                  }}
+                  } : undefined}
                 >
                   <span
                     className={`w-2.5 h-2.5 rounded-full shrink-0 ${activeOracles.includes(ev.oracle) ? 'animate-pulse' : ''}`}
@@ -549,7 +592,7 @@ export function Pulse() {
                   : isCollapsed ? 'bg-white/[0.04] text-white/25'
                   : 'bg-white/[0.08] text-white/40'
                 }`}>
-                  {icon}
+                  {isCollapsed ? (isExpanded ? '▾' : '▸') : icon}
                 </span>
 
                 {/* Message (hover on AI responses to preview terminal) */}
@@ -567,7 +610,7 @@ export function Pulse() {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
                     hoverTimeout.current = setTimeout(() => setHoverPreview(null), 200);
                   } : undefined}
-                  onClick={isStop ? () => { setHoverPreview(null); openTerminal(ev.oracle); } : undefined}
+                  onClick={isStop ? (e) => { e.stopPropagation(); setHoverPreview(null); openTerminal(ev.oracle); } : undefined}
                   style={isStop ? { cursor: 'pointer' } : undefined}
                 >
                   <MessageCell
@@ -593,6 +636,41 @@ export function Pulse() {
                 </span>
               </div>
             );
+
+            {/* Expanded hidden events */}
+            if (isExpanded && group) {
+              for (const [j, hidden] of group.hidden.entries()) {
+                const hColor = getOracleColor(hidden.oracle);
+                const hDuration = hidden.session_id.includes('|') ? hidden.session_id.split('|')[1] : null;
+                const hDone = hidden.event === 'ToolDone';
+                const hFailed = hidden.event === 'ToolFailed';
+                rows.push(
+                  <div
+                    key={`${ev.timestamp}-${i}-exp-${j}`}
+                    className="flex items-start gap-3 py-1.5 px-4 pl-8 rounded-lg bg-white/[0.02]"
+                  >
+                    <span className="text-xs font-mono text-white/25 w-[36px] shrink-0 pt-0.5 text-right tabular-nums">
+                      {relativeTime(hidden.timestamp)}
+                    </span>
+                    <div className="flex items-center gap-2 w-[90px] shrink-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: hColor + '60' }} />
+                      <span className="text-xs font-mono text-white/30 truncate">{hidden.oracle}</span>
+                    </div>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded w-[32px] text-center shrink-0 ${
+                      hFailed ? 'bg-red-500/20 text-red-400' : hDone ? 'bg-emerald-500/10 text-emerald-400/60' : 'bg-white/[0.05] text-white/30'
+                    }`}>
+                      {hDone ? 'ok' : hFailed ? 'XX' : '...'}
+                    </span>
+                    <span className="text-sm font-mono text-white/35 min-w-0 flex-1 truncate">{hidden.message}</span>
+                    {hDuration && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 bg-white/[0.04] text-white/30">{hDuration}</span>
+                    )}
+                  </div>
+                );
+              }
+            }
+
+            return rows;
           })}
         </div>
 
@@ -605,21 +683,18 @@ export function Pulse() {
 
       {/* Hover popup */}
       {hoverPreview && !terminalTarget && (
-        <div
+        <HoverPreview
+          oracle={hoverPreview.oracle}
+          target={hoverPreview.target}
+          x={hoverPreview.x}
+          y={hoverPreview.y}
+          onPin={() => {
+            setHoverPreview(null);
+            setTerminalTarget({ oracle: hoverPreview.oracle, target: hoverPreview.target });
+          }}
           onMouseEnter={() => { if (hoverTimeout.current) clearTimeout(hoverTimeout.current); }}
           onMouseLeave={() => setHoverPreview(null)}
-        >
-          <HoverPreview
-            oracle={hoverPreview.oracle}
-            target={hoverPreview.target}
-            x={hoverPreview.x}
-            y={hoverPreview.y}
-            onPin={() => {
-              setHoverPreview(null);
-              setTerminalTarget({ oracle: hoverPreview.oracle, target: hoverPreview.target });
-            }}
-          />
-        </div>
+        />
       )}
 
       {/* Terminal preview modal */}
