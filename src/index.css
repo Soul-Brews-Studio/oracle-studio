@@ -1,21 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0a0a0f;
+  --color-bg-secondary: #0f0f1a;
+  --color-bg-card: #0f0f14;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-subtle: rgba(255, 255, 255, 0.04);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-accent: #64b5f6;
+  --color-accent-hover: #42a5f5;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-text-primary: #e0e0e0;
+  --color-text-secondary: #888;
+  --color-text-muted: #666;
+  --color-type-learning: #60a5fa;
+  --color-type-principle: #c084fc;
+  --color-type-retro: #4ade80;
+  --color-type-trace: #38bdf8;
+  --color-type-thread: #a78bfa;
+  --color-type-resonance: #fb7185;
+  --color-type-handoff: #22d3ee;
+}
+
+/* Legacy CSS variable bridge — keeps existing CSS modules working during migration */
 :root {
   --bg-primary: #0a0a0f;
   --bg-secondary: #0f0f1a;
-  --bg-card: #1a1a2e;
-  --border: #2a2a3a;
+  --bg-card: #0f0f14;
+  --border: rgba(255, 255, 255, 0.08);
   --text-primary: #e0e0e0;
   --text-secondary: #888;
   --text-muted: #666;
-  --accent: #a78bfa;
-  --accent-hover: #6d28d9;
+  --accent: #64b5f6;
+  --accent-hover: #42a5f5;
   --success: #4ade80;
   --warning: #fbbf24;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
