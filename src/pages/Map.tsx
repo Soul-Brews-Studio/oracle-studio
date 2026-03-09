@@ -107,8 +107,10 @@ export function Map() {
   const [hoveredDoc, setHoveredDoc] = useState<MapDocument | null>(null);
   const [searching, setSearching] = useState(false);
   const [visibleTypes, setVisibleTypes] = useState<Set<string>>(new Set(['principle', 'learning', 'retro']));
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
 
   const visibleTypesRef = useRef<Set<string>>(new Set(['principle', 'learning', 'retro']));
+  const selectedProjectRef = useRef<string | null>(null);
   const matchIdsRef = useRef<Set<string>>(new Set());
   const hoveredDocRef = useRef<MapDocument | null>(null);
   const animRef = useRef<number>(0);
@@ -134,6 +136,7 @@ export function Map() {
   useEffect(() => { matchIdsRef.current = matchIds; }, [matchIds]);
   useEffect(() => { hoveredDocRef.current = hoveredDoc; }, [hoveredDoc]);
   useEffect(() => { visibleTypesRef.current = visibleTypes; }, [visibleTypes]);
+  useEffect(() => { selectedProjectRef.current = selectedProject; }, [selectedProject]);
 
   const [loadingModel, setLoadingModel] = useState<string | null>(null);
 
@@ -498,6 +501,7 @@ export function Map() {
       const hasSearch = matches.size > 0;
       const hovered = hoveredDocRef.current;
       const visTypes = visibleTypesRef.current;
+      const projFilter = selectedProjectRef.current;
       const mx = mouseNDC.current.x;
       const my = mouseNDC.current.y;
 
@@ -510,7 +514,8 @@ export function Map() {
         const mat = mesh.material as THREE.MeshStandardMaterial;
         const isHidden = !visTypes.has(doc.type);
         const isMatched = hasSearch && (matches.has(doc.id) || (doc.chunk_ids?.some(cid => matches.has(cid)) ?? false));
-        const isFaded = hasSearch && !isMatched;
+        const isProjectFiltered = projFilter != null && doc.project !== projFilter && doc.project != null;
+        const isFaded = (hasSearch && !isMatched) || isProjectFiltered;
 
         mesh.visible = !isHidden;
         if (isHidden) return;
@@ -856,28 +861,47 @@ export function Map() {
           {totalOracles > 0 && (
             <>
               <div className="h-px bg-border my-1" />
-              <span className="text-xs font-mono uppercase tracking-wide text-text-muted">Oracle Universe</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono uppercase tracking-wide text-text-muted">Oracle Universe</span>
+                {selectedProject && (
+                  <button
+                    onClick={() => setSelectedProject(null)}
+                    className="text-[9px] font-mono text-accent cursor-pointer hover:underline"
+                  >
+                    Clear filter
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xl font-bold text-accent tabular-nums">{totalOracles}</span>
-                <span className="text-xs text-text-muted">Repos Indexed</span>
+                <span className="text-xs text-text-muted">
+                  {selectedProject ? `Filtering: ${selectedProject.split('/').pop()}` : 'Repos Indexed'}
+                </span>
               </div>
-              <div className="flex flex-col gap-1 flex-1 overflow-y-auto">
+              <div className="flex flex-col gap-0.5 flex-1 overflow-y-auto">
                 {oracleProjects.map(p => {
                   const name = p.project.split('/').pop() || p.project;
                   const org = p.project.split('/').slice(-2, -1)[0] || '';
                   const age = Date.now() - p.last_indexed;
                   const ageLabel = age < 3600_000 ? '<1h' : age < 86400_000 ? `${Math.floor(age / 3600_000)}h` : `${Math.floor(age / 86400_000)}d`;
+                  const isSelected = selectedProject === p.project;
                   return (
-                    <div key={p.project} className="flex items-center justify-between py-0.5 gap-2">
+                    <button
+                      key={p.project}
+                      onClick={() => setSelectedProject(isSelected ? null : p.project)}
+                      className={`flex items-center justify-between py-1 px-1.5 gap-2 rounded-md cursor-pointer text-left transition-all duration-150 border-none ${
+                        isSelected ? 'bg-accent/15' : 'bg-transparent hover:bg-white/[0.04]'
+                      }`}
+                    >
                       <div className="flex flex-col min-w-0">
-                        <span className="text-xs text-text-primary truncate" title={p.project}>{name}</span>
+                        <span className={`text-xs truncate ${isSelected ? 'text-accent font-semibold' : 'text-text-primary'}`} title={p.project}>{name}</span>
                         <span className="text-[9px] text-text-muted truncate">{org}</span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[9px] text-text-muted tabular-nums">{p.docs}</span>
+                        <span className={`text-[9px] tabular-nums ${isSelected ? 'text-accent' : 'text-text-muted'}`}>{p.docs}</span>
                         <span className={`w-1.5 h-1.5 rounded-full ${age < 86400_000 ? 'bg-success' : age < 604800_000 ? 'bg-warning' : 'bg-text-muted'}`} title={ageLabel + ' ago'} />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
