@@ -28,11 +28,12 @@ const GLOBE_COLORS: Record<string, number> = {
   'qwen3': 0xfb923c,     // orange
 };
 
-// Triangle positions for 3 globes
+// Positions for globes (first is center/origin, rest spread out)
 const GLOBE_POSITIONS: THREE.Vector3[] = [
-  new THREE.Vector3(0, 12, 0),       // top center
-  new THREE.Vector3(-18, -8, 0),     // bottom left
-  new THREE.Vector3(18, -8, 0),      // bottom right
+  new THREE.Vector3(0, 0, 0),        // center (default)
+  new THREE.Vector3(-22, 14, 0),     // top left
+  new THREE.Vector3(22, 14, 0),      // top right
+  new THREE.Vector3(0, -18, 0),      // bottom center
 ];
 
 // Damped spring tween
@@ -136,10 +137,10 @@ export function Map() {
 
   const [loadingModel, setLoadingModel] = useState<string | null>(null);
 
-  // Load data — only default model on mount
+  // Load data — bge-m3 as initial globe
   useEffect(() => {
     Promise.all([
-      getMap().catch(() => ({ documents: [], total: 0 })),
+      getMap3d('bge-m3').catch(() => getMap().then(d => ({ ...d, pca_info: undefined }))).catch(() => ({ documents: [], total: 0 })),
       getStats().catch(() => null),
       getOracles().catch(() => ({ projects: [], total_projects: 0, identities: [], total_identities: 0 })),
     ]).then(([mapData, statsData, oraclesData]) => {
@@ -147,9 +148,9 @@ export function Map() {
       setOracleProjects(oraclesData.projects);
       setTotalOracles(oraclesData.total_projects);
       setGlobes([{
-        key: 'default',
-        model: 'bge-m3',
-        count: mapData.total,
+        key: 'bge-m3',
+        model: 'BAAI/bge-m3',
+        count: mapData.documents.length,
         documents: mapData.documents,
         center: new THREE.Vector3(0, 0, 0),
       }]);
