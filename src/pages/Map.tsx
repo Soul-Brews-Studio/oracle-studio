@@ -301,7 +301,7 @@ export function Map() {
         const basePos = new THREE.Vector3(
           globe.center.x + doc.x * 8,
           globe.center.y + doc.y * 8,
-          globe.center.z + z * 5,
+          globe.center.z + z * 8,
         );
         mesh.position.copy(basePos);
         mesh.userData = { doc, basePos, baseScale, globeKey: globe.key };
@@ -456,9 +456,10 @@ export function Map() {
 
       const dist = camDist.current.x;
 
-      // Scale bloom by distance
-      const bloomScale = Math.max(0.1, Math.min(1.0, 18 / dist));
-      bloomPass.strength = 0.8 * bloomScale;
+      // Scale bloom + emissive by distance (prevents glow wash at zoom-out)
+      const bloomScale = Math.max(0.05, Math.min(1.0, 15 / dist));
+      bloomPass.strength = 0.6 * bloomScale;
+      bloomPass.radius = 0.4 * bloomScale;
 
       camera.position.x = Math.sin(camAngleX.current.x) * Math.cos(camAngleY.current.x) * dist;
       camera.position.y = Math.sin(camAngleY.current.x) * dist;
@@ -542,9 +543,10 @@ export function Map() {
         if (isMatched) scale *= 1.4;
         mesh.scale.setScalar(scale);
 
-        const baseGlow = isFaded ? 0.1 : 0.5;
+        const emissiveScale = Math.max(0.2, Math.min(1.0, 20 / dist));
+        const baseGlow = isFaded ? 0.1 : 0.5 * emissiveScale;
         mat.emissiveIntensity = baseGlow + (magnifyFactor - 1) * 0.6;
-        if (isMatched) mat.emissiveIntensity = 1.0;
+        if (isMatched) mat.emissiveIntensity = 1.0 * emissiveScale;
         if (hovered?.id === doc.id) mat.emissiveIntensity = 1.2;
 
         mat.opacity = isFaded ? 0.05 : 1.0;
@@ -803,12 +805,13 @@ export function Map() {
             <span className="text-xs text-text-muted">Documents Mapped</span>
           </div>
           {Object.entries(typeCounts).map(([type, count]) => {
-            const chunks = stats?.by_type?.[type];
+            const globalChunks = stats?.by_type?.[type];
+            const globalFiles = (stats as any)?.by_type_files?.[type];
             return (
               <div key={type} className="flex flex-col gap-0.5">
                 <span className="text-xl font-bold tabular-nums" style={{ color: TYPE_COLORS[type] }}>{count.toLocaleString()}</span>
                 <span className="text-xs text-text-muted capitalize">
-                  {type}s{chunks && chunks !== count ? ` (${chunks.toLocaleString()} chunks)` : ''}
+                  {type}s{globalFiles ? ` (${globalFiles.toLocaleString()} files)` : globalChunks && globalChunks !== count ? ` (${globalChunks.toLocaleString()} chunks)` : ''}
                 </span>
               </div>
             );
