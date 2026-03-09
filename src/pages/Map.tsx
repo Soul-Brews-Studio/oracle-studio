@@ -166,9 +166,9 @@ export function Map() {
     composer.addPass(new RenderPass(scene, camera));
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(width, height),
-      0.4,   // strength (subtle glow)
+      0.6,   // strength
       0.3,   // radius
-      0.3,   // threshold
+      0.25,  // threshold
     );
     composer.addPass(bloomPass);
 
@@ -227,7 +227,7 @@ export function Map() {
         metalness: 0.3,
         roughness: 0.2,
         emissive: color,
-        emissiveIntensity: 0.5,
+        emissiveIntensity: 0.6,
         transparent: true,
         opacity: 1.0,
       });
@@ -389,8 +389,8 @@ export function Map() {
       const dist = camDist.current.x;
 
       // Scale bloom down when zoomed out (dist > 20), up when close
-      const bloomScale = Math.max(0.05, Math.min(1.0, 15 / dist));
-      bloomPass.strength = 0.4 * bloomScale;
+      const bloomScale = Math.max(0.15, Math.min(1.0, 16 / dist));
+      bloomPass.strength = 0.6 * bloomScale;
       camera.position.x = Math.sin(camAngleX.current.x) * Math.cos(camAngleY.current.x) * dist;
       camera.position.y = Math.sin(camAngleY.current.x) * dist;
       camera.position.z = Math.cos(camAngleX.current.x) * Math.cos(camAngleY.current.x) * dist;
@@ -456,10 +456,10 @@ export function Map() {
         mesh.scale.setScalar(scale);
 
         // Dynamic emissive glow — proximity + search state
-        const baseGlow = isFaded ? 0.05 : 0.3;
-        mat.emissiveIntensity = baseGlow + (magnifyFactor - 1) * 0.4;
-        if (isMatched) mat.emissiveIntensity = 0.7;
-        if (hovered?.id === doc.id) mat.emissiveIntensity = 0.9;
+        const baseGlow = isFaded ? 0.08 : 0.4;
+        mat.emissiveIntensity = baseGlow + (magnifyFactor - 1) * 0.5;
+        if (isMatched) mat.emissiveIntensity = 0.8;
+        if (hovered?.id === doc.id) mat.emissiveIntensity = 1.0;
 
         mat.opacity = isFaded ? 0.05 : 1.0;
 
