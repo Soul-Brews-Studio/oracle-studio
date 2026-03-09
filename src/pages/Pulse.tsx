@@ -566,7 +566,7 @@ export function Pulse() {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
                     hoverTimeout.current = setTimeout(() => {
                       setHoverPreview({ oracle: ev.oracle, target: win.target, x: e.clientX, y: e.clientY });
-                    }, 300);
+                    }, 150);
                   } : undefined}
                   onMouseLeave={!isCollapsed ? () => {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
@@ -604,7 +604,7 @@ export function Pulse() {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
                     hoverTimeout.current = setTimeout(() => {
                       setHoverPreview({ oracle: ev.oracle, target: win.target, x: e.clientX, y: e.clientY });
-                    }, 300);
+                    }, 150);
                   } : undefined}
                   onMouseLeave={isStop ? () => {
                     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
