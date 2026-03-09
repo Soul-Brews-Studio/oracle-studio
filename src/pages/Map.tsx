@@ -121,10 +121,10 @@ export function Map() {
   // Camera orbit state
   const camAngleX = useRef({ x: 0, v: 0 });
   const camAngleY = useRef({ x: 0.3, v: 0 });
-  const camDist = useRef({ x: 55, v: 0 });
+  const camDist = useRef({ x: 28, v: 0 });
   const targetAngleX = useRef(0);
   const targetAngleY = useRef(0.3);
-  const targetDist = useRef(55);
+  const targetDist = useRef(28);
   const camTarget = useRef(new THREE.Vector3(0, 0, 0));
   const targetCenter = useRef(new THREE.Vector3(0, 0, 0));
   const isDragging = useRef(false);
@@ -134,63 +134,57 @@ export function Map() {
   useEffect(() => { hoveredDocRef.current = hoveredDoc; }, [hoveredDoc]);
   useEffect(() => { visibleTypesRef.current = visibleTypes; }, [visibleTypes]);
 
-  // Load data — fetch all models in parallel
+  const [loadingModel, setLoadingModel] = useState<string | null>(null);
+
+  // Load data — only default model on mount
   useEffect(() => {
     Promise.all([
+      getMap().catch(() => ({ documents: [], total: 0 })),
       getStats().catch(() => null),
       getOracles().catch(() => ({ projects: [], total_projects: 0, identities: [], total_identities: 0 })),
-    ]).then(async ([statsData, oraclesData]) => {
+    ]).then(([mapData, statsData, oraclesData]) => {
       setStats(statsData);
       setOracleProjects(oraclesData.projects);
       setTotalOracles(oraclesData.total_projects);
-
-      // Get enabled models from stats
-      const models = statsData?.vectors?.filter(v => v.enabled) || [];
-      if (models.length === 0) {
-        // Fallback: load default map
-        const mapData = await getMap().catch(() => ({ documents: [], total: 0 }));
-        setGlobes([{
-          key: 'default',
-          model: 'FTS5',
-          count: mapData.total,
-          documents: mapData.documents,
-          center: new THREE.Vector3(0, 0, 0),
-        }]);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch map3d for each model in parallel
-      const results = await Promise.all(
-        models.map(async (m, i) => {
-          try {
-            const data = await getMap3d(m.key);
-            return {
-              key: m.key,
-              model: m.model,
-              count: m.count,
-              documents: data.documents,
-              center: GLOBE_POSITIONS[i % GLOBE_POSITIONS.length].clone(),
-            };
-          } catch {
-            return {
-              key: m.key,
-              model: m.model,
-              count: m.count,
-              documents: [] as MapDocument[],
-              center: GLOBE_POSITIONS[i % GLOBE_POSITIONS.length].clone(),
-            };
-          }
-        })
-      );
-
-      setGlobes(results.filter(r => r.documents.length > 0));
+      setGlobes([{
+        key: 'default',
+        model: 'bge-m3',
+        count: mapData.total,
+        documents: mapData.documents,
+        center: new THREE.Vector3(0, 0, 0),
+      }]);
       setLoading(false);
     }).catch(e => {
       setError(e.message);
       setLoading(false);
     });
   }, []);
+
+  // Add a new globe for a specific engine
+  async function addGlobe(key: string, model: string) {
+    if (globes.some(g => g.key === key) || loadingModel) return;
+    setLoadingModel(key);
+    try {
+      const data = await getMap3d(key);
+      if (data.documents.length === 0) return;
+      // Position: use next available slot in triangle
+      const idx = globes.length;
+      const center = GLOBE_POSITIONS[idx % GLOBE_POSITIONS.length].clone();
+      setGlobes(prev => [...prev, {
+        key,
+        model,
+        count: data.documents.length,
+        documents: data.documents,
+        center,
+      }]);
+      // Zoom out to see all globes
+      targetDist.current = 55;
+    } catch (e: any) {
+      console.error('Failed to load globe:', e);
+    } finally {
+      setLoadingModel(null);
+    }
+  }
 
   // Three.js scene setup — multi-globe
   useEffect(() => {
@@ -205,7 +199,7 @@ export function Map() {
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 2000);
-    camera.position.z = 55;
+    camera.position.z = 28;
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -762,7 +756,7 @@ export function Map() {
             onClick={() => {
               targetAngleX.current = 0;
               targetAngleY.current = 0.3;
-              targetDist.current = 55;
+              targetDist.current = globes.length > 1 ? 55 : 28;
               targetCenter.current.set(0, 0, 0);
             }}
             className="w-9 h-9 rounded-[10px] text-text-primary text-lg font-medium cursor-pointer flex items-center justify-center backdrop-blur-xl border border-white/[0.08] transition-all duration-200 hover:border-accent hover:text-accent"
@@ -790,7 +784,7 @@ export function Map() {
 
       <div className="w-[260px] bg-bg-card border-l border-border p-6 flex flex-col overflow-hidden">
         <h2 className="text-xl font-bold text-text-primary mb-1">Knowledge Map</h2>
-        <span className="text-[11px] font-mono text-text-muted mb-4 block">{globes.length} engine{globes.length !== 1 ? 's' : ''} loaded</span>
+        <span className="text-[11px] font-mono text-text-muted mb-4 block">{globes.length} globe{globes.length !== 1 ? 's' : ''} active</span>
         <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
           {stats?.total && (
             <div className="flex flex-col gap-0.5">
@@ -813,31 +807,46 @@ export function Map() {
               </div>
             );
           })}
-          {globes.length > 0 && (
+          {stats?.vectors && stats.vectors.length > 0 && (
             <>
               <div className="h-px bg-border my-1" />
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono uppercase tracking-wide text-text-muted">Embedding Globes</span>
+                <span className="text-xs font-mono uppercase tracking-wide text-text-muted">Embedding Engines</span>
                 <span className="text-[9px] font-mono text-text-muted">LanceDB</span>
               </div>
-              {globes.map((globe, gi) => {
-                const globeColor = `#${(GLOBE_COLORS[globe.key] || 0x6a5acd).toString(16).padStart(6, '0')}`;
+              {stats.vectors.map(v => {
+                const loaded = globes.find(g => g.key === v.key);
+                const gi = loaded ? globes.indexOf(loaded) : -1;
+                const globeColor = `#${(GLOBE_COLORS[v.key] || 0x6a5acd).toString(16).padStart(6, '0')}`;
+                const isLoading = loadingModel === v.key;
                 return (
                   <button
-                    key={globe.key}
-                    onClick={() => flyToGlobe(gi)}
-                    className="flex flex-col gap-0.5 p-2 rounded-lg border border-border bg-white/[0.02] hover:border-border-hover cursor-pointer text-left transition-all duration-150"
+                    key={v.key}
+                    onClick={() => loaded ? flyToGlobe(gi) : v.enabled && addGlobe(v.key, v.model)}
+                    disabled={!v.enabled || isLoading}
+                    className={`flex flex-col gap-0.5 p-2 rounded-lg border text-left transition-all duration-150 ${
+                      loaded
+                        ? 'border-accent/40 bg-accent/5 hover:border-accent cursor-pointer'
+                        : v.enabled
+                          ? 'border-border bg-white/[0.02] hover:border-border-hover cursor-pointer'
+                          : 'border-border-subtle opacity-50 cursor-not-allowed'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: globeColor }} />
-                        <span className="text-sm font-semibold text-text-primary">{globe.key}</span>
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: loaded ? globeColor : 'rgba(255,255,255,0.2)' }} />
+                        <span className="text-sm font-semibold text-text-primary">{v.key}</span>
                       </div>
-                      <span className="text-[9px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-success/20 text-success">
-                        {globe.documents.length.toLocaleString()}
+                      <span className={`text-[9px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded ${
+                        loaded ? 'bg-accent/20 text-accent' : isLoading ? 'bg-warning/20 text-warning' : v.enabled ? 'bg-success/20 text-success' : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {loaded ? 'Fly to' : isLoading ? 'Loading...' : v.enabled ? `+ Add` : 'Offline'}
                       </span>
                     </div>
-                    <span className="text-xs text-text-muted font-mono ml-[18px]">{globe.model}</span>
+                    <div className="flex items-center justify-between ml-[18px]">
+                      <span className="text-xs text-text-muted font-mono">{v.model}</span>
+                      <span className="text-[9px] text-text-muted tabular-nums">{v.count.toLocaleString()}</span>
+                    </div>
                   </button>
                 );
               })}
